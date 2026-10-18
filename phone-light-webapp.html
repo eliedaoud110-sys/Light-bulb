@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15140f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Phone Light</title>
+<style>
+:root{--bg:#15140f;--fg:#f2efe6;--muted:#9a9484;--card:#201e17;--line:#363225;--accent:#e8a400}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;transition:background .3s,color .3s;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+body.lit{background:#fff3b0;color:#3a2e00}
+.screen{display:none;height:100%;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;text-align:center}
+.screen.show{display:flex}
+h1{font-size:26px;margin:0}
+p{margin:0;color:var(--muted);max-width:320px;line-height:1.4}
+body.lit p,body.lit .status,body.lit .link{color:#6b5700}
+.pick{width:100%;max-width:320px;padding:20px;border-radius:16px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-size:19px;font-weight:600;cursor:pointer}
+.pick small{display:block;font-weight:400;color:var(--muted);font-size:14px;margin-top:4px}
+.code{font-size:56px;font-weight:800;letter-spacing:.15em;font-variant-numeric:tabular-nums}
+input{width:100%;max-width:240px;padding:14px;font-size:34px;text-align:center;letter-spacing:.2em;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.go{padding:14px 36px;border-radius:14px;border:none;background:var(--accent);color:#2b1d00;font-size:19px;font-weight:700;cursor:pointer}
+#bigBtn{width:min(70vw,280px);height:min(70vw,280px);border-radius:50%;border:none;background:var(--accent);color:#2b1d00;font-size:30px;font-weight:800;box-shadow:0 10px 0 #a87500,0 18px 30px rgba(0,0,0,.25);cursor:pointer;transition:transform .08s,box-shadow .08s}
+#bigBtn:active{transform:translateY(8px);box-shadow:0 2px 0 #a87500,0 6px 12px rgba(0,0,0,.25)}
+#bigBtn.on{background:#fff0a0;box-shadow:0 10px 0 #b8a040,0 0 60px 10px rgba(255,220,80,.6)}
+.status{font-size:15px;display:flex;align-items:center;gap:8px;color:var(--muted);max-width:320px}
+.dot{width:10px;height:10px;border-radius:50%;background:#b33;flex:none}
+.dot.ok{background:#2a9d4a}
+.link{background:none;border:none;color:var(--muted);text-decoration:underline;font-size:14px;cursor:pointer}
+#bulb{width:min(60vw,240px);height:auto;transition:filter .3s}
+#bulb .glass{fill:var(--card);stroke:var(--line);stroke-width:3;transition:fill .3s}
+#bulb .base{fill:var(--muted)}
+body.lit #bulb{filter:drop-shadow(0 0 40px rgba(255,200,0,.9))}
+body.lit #bulb .glass{fill:#ffd93b;stroke:#e8a400}
+</style>
+</head>
+<body>
+
+<div id="pick" class="screen show">
+  <h1>Phone Light</h1>
+  <p>Use two phones. One is the light bulb, the other is the button.</p>
+  <button class="pick" id="pickLight">Light<small>This phone is the bulb. It shows a code.</small></button>
+  <button class="pick" id="pickButton">Button<small>This phone turns the light on and off.</small></button>
+</div>
+
+<div id="join" class="screen">
+  <h1>Enter the code</h1>
+  <p>Type the 4-digit code shown on the light phone.</p>
+  <input id="codeIn" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off">
+  <button class="go" id="joinGo">Connect</button>
+  <button class="link" data-back>Back</button>
+</div>
+
+<div id="buttonScreen" class="screen">
+  <button id="bigBtn">OFF</button>
+  <div class="status"><span class="dot" id="btnDot"></span><span id="btnStatus">Connecting…</span></div>
+  <button class="link" data-back>Change role</button>
+</div>
+
+<div id="lightScreen" class="screen">
+  <svg id="bulb" viewBox="0 0 120 170" aria-label="Light bulb">
+    <path class="glass" d="M60 8C33 8 14 28 14 54c0 18 9 28 17 39 5 7 7 13 7 22h44c0-9 2-15 7-22 8-11 17-21 17-39C106 28 87 8 60 8z"/>
+    <rect class="base" x="38" y="120" width="44" height="10" rx="4"/>
+    <rect class="base" x="40" y="134" width="40" height="10" rx="4"/>
+    <rect class="base" x="46" y="148" width="28" height="12" rx="6"/>
+  </svg>
+  <div id="codeBox">
+    <p>Enter this code on the button phone</p>
+    <div class="code" id="codeShow">····</div>
+  </div>
+  <div class="status"><span class="dot" id="lightDot"></span><span id="lightStatus">Getting a code…</span></div>
+  <button class="link" data-back>Change role</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function(){
+  var PREFIX = "phonelight-";
+  var $ = function(id){return document.getElementById(id)};
+  var screens = {pick:$("pick"), join:$("join"), button:$("buttonScreen"), light:$("lightScreen")};
+  var peer = null, conn = null, wake = null, isOn = false, role = null, retryT = null, code = "";
+
+  function show(n){ for (var k in screens) screens[k].classList.toggle("show", k === n); }
+  function teardown(){
+    clearTimeout(retryT); retryT = null;
+    try{ if (conn) conn.close(); }catch(e){}
+    try{ if (peer) peer.destroy(); }catch(e){}
+    conn = null; peer = null; role = null; isOn = false;
+    document.body.classList.remove("lit");
+    try{ if (wake){ wake.release(); wake = null; } }catch(e){}
+  }
+  function back(){ teardown(); show("pick"); }
+
+  function setLight(on){
+    isOn = !!on;
+    document.body.classList.toggle("lit", isOn);
+  }
+  function setButton(on){
+    isOn = !!on;
+    $("bigBtn").classList.toggle("on", isOn);
+    $("bigBtn").textContent = isOn ? "ON" : "OFF";
+  }
+
+  /* ---------- Light phone ---------- */
+  async function wakeOn(){
+    try{ if (navigator.wakeLock) wake = await navigator.wakeLock.request("screen"); }catch(e){}
+  }
+  document.addEventListener("visibilitychange", function(){
+    if (document.visibilityState === "visible" && role === "light") wakeOn();
+  });
+
+  function startLight(){
+    teardown(); role = "light"; show("light"); wakeOn();
+    $("codeShow").textContent = "····";
+    $("lightDot").classList.remove("ok");
+    $("lightStatus").textContent = "Getting a code…";
+    tryCode(0);
+  }
+  function tryCode(n){
+    if (n > 8){ $("lightStatus").textContent = "Couldn’t get a code. Check your internet and try again."; return; }
+    code = String(Math.floor(1000 + Math.random() * 9000));
+    var p = new Peer(PREFIX + code);
+    peer = p;
+    p.on("open", function(){
+      $("codeShow").textContent = code;
+      $("lightStatus").textContent = "Waiting for the button phone…";
+    });
+    p.on("connection", function(c){
+      try{ if (conn) conn.close(); }catch(e){}
+      conn = c;
+      c.on("open", function(){
+        $("lightDot").classList.add("ok");
+        $("lightStatus").textContent = "Button phone connected";
+        $("codeBox").style.display = "none";
+      });
+      c.on("data", function(d){ if (d && typeof d.on === "boolean") setLight(d.on); });
+      c.on("close", function(){
+        if (conn !== c) return;
+        conn = null; setLight(false);
+        $("lightDot").classList.remove("ok");
+        $("lightStatus").textContent = "Button phone left. Waiting…";
+        $("codeBox").style.display = "";
+      });
+    });
+    p.on("error", function(e){
+      if (e && e.type === "unavailable-id"){ try{ p.destroy(); }catch(x){} tryCode(n + 1); }
+      else $("lightStatus").textContent = "Connection problem. Check your internet.";
+    });
+  }
+
+  /* ---------- Button phone ---------- */
+  function startJoin(){ teardown(); show("join"); $("codeIn").value = ""; $("codeIn").focus(); }
+  function joinNow(){
+    var c = $("codeIn").value.replace(/\D/g, "");
+    if (c.length !== 4) return;
+    teardown(); role = "button"; code = c; show("button"); setButton(false);
+    $("btnDot").classList.remove("ok");
+    $("btnStatus").textContent = "Connecting…";
+    peer = new Peer();
+    peer.on("open", connectOut);
+    peer.on("error", function(e){
+      if (e && e.type === "peer-unavailable"){
+        $("btnStatus").textContent = "Light phone not found. Check the code. Trying again…";
+        scheduleRetry();
+      } else {
+        $("btnStatus").textContent = "Connection problem. Trying again…";
+        scheduleRetry();
+      }
+    });
+    peer.on("disconnected", function(){ try{ peer.reconnect(); }catch(e){} });
+  }
+  function connectOut(){
+    if (role !== "button" || !peer || peer.destroyed) return;
+    var c = peer.connect(PREFIX + code, {reliable:true});
+    conn = c;
+    c.on("open", function(){
+      $("btnDot").classList.add("ok");
+      $("btnStatus").textContent = "Light phone connected";
+      c.send({on:isOn});
+    });
+    c.on("close", function(){
+      if (conn !== c) return;
+      $("btnDot").classList.remove("ok");
+      $("btnStatus").textContent = "Lost the light phone. Reconnecting…";
+      scheduleRetry();
+    });
+  }
+  function scheduleRetry(){
+    clearTimeout(retryT);
+    retryT = setTimeout(function(){
+      if (role !== "button") return;
+      if (peer && !peer.destroyed && peer.open) connectOut();
+    }, 2500);
+  }
+  $("bigBtn").addEventListener("click", function(){
+    setButton(!isOn);
+    try{ if (conn && conn.open) conn.send({on:isOn}); }catch(e){}
+  });
+
+  $("pickLight").addEventListener("click", startLight);
+  $("pickButton").addEventListener("click", startJoin);
+  $("joinGo").addEventListener("click", joinNow);
+  $("codeIn").addEventListener("keydown", function(e){ if (e.key === "Enter") joinNow(); });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-back]"), function(el){
+    el.addEventListener("click", back);
+  });
+})();
+</script>
+</body>
+</html>
